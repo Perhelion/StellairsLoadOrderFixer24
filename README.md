@@ -1,9 +1,10 @@
 # StellairsLoadOrderFixer25
 Sort Stellaris mods in *reverse* alphabetical order (2.4's mod load order is different from 2.3.3)
 
-2.5: Changes only the JSON file (`game_data.json`) for the visible order for the PDX launcher, so you need (after executing) opening the PDX ModManager and confirming the new order)
+2.5: Changes only the JSON file (`game_data.json`) for the visible order for the PDX launcher, So you have to open the PDX Mod Manager and confirm the new order (after execution).
+ - Now supports sorting by mod dependencies
 
-The `dlc_load.json` is the load order for enabled mods (used by the game instead of game_data.json), which is stored in *reverse* order to game_data.json. So this file is not touched anymore since 2.5.
+The `dlc_load.json` is the load order for enabled mods (used by the game instead of `game_data.json`), which is stored in *reverse* order to `game_data.json`. So this file is no longer touched since 2.5.
 ~~2.4: Force load all incompatible mods (you can disable them manually in the launcher)~~
 
 ## How to use
