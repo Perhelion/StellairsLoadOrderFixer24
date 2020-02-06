@@ -12,7 +12,7 @@ import zipfile
 mods_registry =  "mods_registry.json"
 enabledMods = {}
 data = {}
-hashList = [] # the visible order (PDX launcher)
+# hashList = [] # the visible order (PDX launcher)
 modList = [] # the modId order (game, which is in reverse to hashList)
 bak_ext = '.bak' # backup file extension
 
@@ -67,17 +67,19 @@ def tweakModOrder(arr):
 def loadJsonOrder(file):
 	"Read JSON files"
 	file = os.path.join(settingPath, file)
-	data = {}
+	json_data = {}
 	if os.path.isfile(file):
 		# Remove old backup
+		if os.path.isfile(file + bak_ext):
+			print("Remove old backup file")
+			os.remove(file + bak_ext)
 		with open(file, 'r') as f:
-			data = json.load(f)
-			if len(data) < 1:
+			json_data = json.load(f)
+			if len(json_data) < 1:
 				print('Loading failed:', file)
 	else:
 		print('Please enable at least one mod', file)
-	return (data, file)
-
+	return (json_data, file)
 
 def writeJsonOrder(data, file):
 	"Write JSON file"
@@ -129,9 +131,9 @@ def checkDependencies(descCnt, hashKey, name, order):
 			for n in dependencies:
 				i = getHashFromName(n)
 				if not i:
-					# print('(Error dependencie) %s not found for %s in mods_registry' % (n.encode(), name))
+					print('Error dependencie: %s not found for %s in mods_registry' % (n.encode(), name))
 					continue
-				i = i and getIndexFromHash(i, name)
+				i = getIndexFromHash(i, name)
 				if type(i) is int and i > order:
 					print("FIX dependencie: %s - %d is lower than %d - %s" % (name, order, i, n))
 					item = modList.pop(order)
@@ -185,10 +187,10 @@ def getModDescription(mod, order):
 
 def run():
 	global mods_registry
-	global hashList
 	global modList
 	global enabledMods
 	global data
+	# global hashList
 
 	mods_registry = os.path.join(settingPath, mods_registry)
 	enabledMods, dlc_load = loadJsonOrder('dlc_load.json')
@@ -202,15 +204,15 @@ def run():
 		# make sure UIOverhual+SpeedDial will load after UIOverhual
 		modList = tweakModOrder(modList)
 	
+	idList = enabledMods['enabled_mods']
 	# Sort after dependencies
 	for i, mod in enumerate(modList):
 		getModDescription(mod, i)
 
-	# enabledMods['enabled_mods'] = [mod.modId for mod in modList] # idList
+	displayOrder['modsOrder'] = [mod.hashKey for mod in modList] # hashList
+	enabledMods['enabled_mods'] = [mod.modId for mod in reversed(modList) if mod.modId in idList]
 	# print(*["%i: %s" % (i, mod.sortedKey.decode('ascii')) for i, mod in enumerate(modList)], sep = "\n")
-
-	displayOrder['modsOrder'] = hashList = [mod.hashKey for mod in modList]
-	# writeJsonOrder(enabledMods, dlc_load) # leave enabled mods
+	writeJsonOrder(enabledMods, dlc_load)
 	writeJsonOrder(displayOrder, game_data)
 
 
