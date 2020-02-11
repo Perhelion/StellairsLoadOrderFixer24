@@ -1,6 +1,5 @@
 # -*- coding: utf-8 -*-
 #!python3.6
-#coding: utf8
 import json
 import os
 import ctypes  # An included library with Python install.
@@ -9,13 +8,12 @@ import traceback
 import platform
 import zipfile
 
-mods_registry =  "mods_registry.json"
+mods_registry =  'mods_registry.json'
 enabledMods = {}
 data = {}
-# hashList = [] # the visible order (PDX launcher)
+allTags = {}
 modList = [] # the modId order (game, which is in reverse to hashList)
 bak_ext = '.bak' # backup file extension
-
 
 class Mod():
 	def __init__(self, hashKey, name, modId):
@@ -81,6 +79,7 @@ def loadJsonOrder(file):
 		print('Please enable at least one mod', file)
 	return (json_data, file)
 
+
 def writeJsonOrder(data, file):
 	"Write JSON file"
 	# Backup
@@ -95,94 +94,192 @@ def getHashFromName(name):
 			return h
 	return False
 
+
 def getIndexFromHash(h, name):
 	i = [i for i, mod in enumerate(modList) if mod.hashKey == h]
 	if len(i):
 		return i[0]
-	# if h and h in hashList:
-	# 	return hashList.index(h)
 	print(name, 'Hashkey not found in game_data.json', h)
 
 
-def checkDependencies(descCnt, hashKey, name, order):
-	if descCnt and len(descCnt) > 30 and "dependencies" in descCnt:
-		d = False
-		dependencies = []
-		# print("Read dependencies in descriptor.mod file for", name)
-		descCnt = descCnt.splitlines()
-		for line in descCnt:
-			if "dependencies" in line and not d:
-				d = True
-				if not "}" in line:
-					continue
-				else:
-					print("dependencies oneliner?", line)
-			if d:
-				if not "}" in line:
-					line = line.strip().strip('\"')
-					dependencies.append(line)
-				else:
-					break
+def sortAfterTags(allTags, modList):
+	"Merge allTags with modList"
+	output  = []
+	addAfter = []
+	tagsOrder = ['Utilities', 'Patch', 'Fixes']
 
-		# if gId not in enabledMods['enabled_mods']:
-		# 	return print(name, 'is not enabled?')
+	def _rmvDupes(dupes):
+		finalList = []
+		for i in range(len(dupes)):
+			d = dupes.pop() # prior higher indexes
+			if d not in finalList:
+				finalList.append(d)
+		finalList.reverse()
+		return finalList
 
-		if len(dependencies):
-			for n in dependencies:
-				i = getHashFromName(n)
-				if not i:
-					print('Error dependencie: %s not found for %s in mods_registry' % (n.encode(), name))
-					continue
-				i = getIndexFromHash(i, name)
-				if type(i) is int and i > order:
-					print("FIX dependencie: %s - %d is lower than %d - %s" % (name, order, i, n))
-					item = modList.pop(order)
-					modList.insert(i, item) # insert before
-					order = i
-				# else:
-				# 	print("dependencie error %s is not enabled for %s" % (n, name))
+	def _mergeList(name, modList):
+		# name = name.decode()
+		for mod in modList:
+			if mod.sortedKey == name:
+				modList.remove(mod)
+				modList.append(mod)
+				break
+		return modList
 
-			# print(str(dependencies).encode())
-		# 	return dependencies
+	if 'Music' in allTags:
+		output.extend(allTags.pop('Music'))
+	for o in tagsOrder:
+		if o in allTags:
+			addAfter.extend(allTags.pop(o))
 
-def getModDescription(mod, order):
-	# Extracting ZIP archives as recommended since 2.4
-	d = data[mod.hashKey]
-	dirPath = d.get("dirPath")
-	archivePath = d.get("archivePath")
-	descriptor = ''
-	desc_file = os.path.join(dirPath, "descriptor.mod")
-	displayName = mod.sortedKey
+	# print(type(addAfter),len(addAfter),*addAfter, sep="\n")
+		
+	for t, d in allTags.items():
+		output.extend(d)
 
-	if not dirPath or not os.path.isdir(dirPath):
-		return
+	output.extend(addAfter)
+	output = _rmvDupes(output)
 
-	if os.path.isfile(desc_file):
-		with open(desc_file, encoding='UTF-8') as f:
-			descriptor = f.read()
+	for name in output:
+		modList = _mergeList(name, modList)
 
-	if archivePath and not descriptor:
-		if os.path.isfile(archivePath):
-			try:
-				with zipfile.ZipFile(archivePath, 'r') as zip_ref:
-					zip_ref.extractall(dirPath)
-				# del data_loaded[i]["archivePath"]
-				zip_ref.close()
-				print("Mod archive extraxcted %s" % displayName)
-				# os.remove(archivePath)
-			except Exception as e:
-				print(errorMesssage(e))
-				pass
-		# else:
-		# 	del data_loaded[i]["archivePath"]
+	return modList
+
+def sortAfterDependencies(modList, dependencies, order, name):
+	# print(order, name, dependencies)
+	for n in dependencies:
+		i = getHashFromName(n)
+		if not i:
+			print('Error dependencie: %s not found for %s in mods_registry' % (n.encode(), name))
+			continue
+		i = getIndexFromHash(i, name)
+		if type(i) is int and i > order:
+			print("FIX dependencie: %s - %d is lower than %d - %s" % (name, order, i, n))
+			item = modList.pop(order)
+			modList.insert(i, item) # insert before
+			order = i
+	return modList
+
+
+def sortDependencies(modList):
+	for mod in modList:
+		order = modList.index(mod) # Because changes on run
+		if hasattr(mod, 'dependencies'):
+			modList = sortAfterDependencies(modList, mod.dependencies, order, mod.sortedKey)
+			# else:
+			# 	print("dependencie error %s is not enabled for %s" % (n, name))
+	return modList
+
+# <tuple> descContent
+def checkDependencies(descContent, order, name):
+	global modList
+	for descCnt in descContent:
+		if descCnt and len(descCnt) > 30 and "dependencies" in descCnt:
+			d = False
+			dependencies = []
+			descCnt = descCnt.splitlines()
+			for line in descCnt:
+				if "dependencies" in line and not d:
+					d = True
+					if not "}" in line:
+						continue
+					# else: print("dependencies oneliner?", line, name)
+				if d:
+					if not "}" in line:
+						line = line.strip().strip('\"')
+						dependencies.append(line)
+					else:
+						break
+			# if gId not in enabledMods['enabled_mods']:
+			# 	return print(name, 'is not enabled?')
+			# Save only for later usage
+			if len(dependencies):
+				# print("Read dependencies in descriptor.mod file for", name, dependencies)
+				modList[order].dependencies = dependencies
+				# modList = sortAfterDependencies(modList, dependencies, order, name)
+
+# <tuple> descContent
+def checkTags(descContent, order, name):
+	global allTags
+	for descCnt in descContent:
+		if descCnt and len(descCnt) > 30 and "tags" in descCnt:
+			tags = []
+			d = False
+			# print("Read tags in descriptor.mod file for", name)
+			descCnt = descCnt.splitlines()
+			for line in descCnt:
+				if "tags=" in line and not d:
+					d = True
+					if not "}" in line:
+						continue
+					# else: print("tags oneliner?", line, name)
+				if d:
+					if not "}" in line:
+						line = line.strip().strip('\"')
+						tags.append(line)
+					else:
+						break
+
+			if len(tags):
+				for t in tags:
+					li = allTags.get(t, list())
+					if name not in li:
+						li.append(name) #.decode()
+						allTags[t] = li
+
+
+def getModDescription():
+	global allTags
+	for order, mod in enumerate(modList):
+		# Extracting ZIP archives as recommended since 2.4
+		d = data[mod.hashKey]
+		dirPath = d.get("dirPath")
+		archivePath = d.get("archivePath")
+		descriptor = []
+		desc_file = os.path.join(dirPath, "descriptor.mod")
+		displayName = mod.sortedKey
+		gId = d.get("gameRegistryId")
+
+		if not dirPath or not os.path.isdir(dirPath):
+			return
+
 		if os.path.isfile(desc_file):
 			with open(desc_file, encoding='UTF-8') as f:
-				descriptor = f.read()
+				descriptor.append(f.read())
 
-	if descriptor:
-		checkDependencies(descriptor, mod.hashKey, displayName, order)
-	else:
-		print("Error: no descriptor.mod for %s" % displayName)
+		if archivePath and not len(descriptor):
+			if os.path.isfile(archivePath):
+				try:
+					with zipfile.ZipFile(archivePath, 'r') as zip_ref:
+						zip_ref.extractall(dirPath)
+					# del data_loaded[i]["archivePath"]
+					zip_ref.close()
+					print("Mod archive extraxcted %s" % displayName)
+					# os.remove(archivePath)
+				except Exception as e:
+					print(errorMesssage(e))
+					pass
+			# else:
+			# 	del data_loaded[i]["archivePath"]
+			if os.path.isfile(desc_file):
+				with open(desc_file, encoding='UTF-8') as f:
+					descriptor.append(f.read())
+		if not len(descriptor):
+			print("Error: no descriptor.mod for %s" % displayName)
+
+		# Read mod file
+		desc_file = os.path.join(settingPath, 'mod', mod.modId.replace("mod/",""))
+		if os.path.isfile(desc_file):
+			with open(desc_file, encoding='UTF-8') as f:
+				descriptor.append(f.read())
+		else:
+			print("Error: no %s for %s" % (mod.modId, displayName))
+
+		if len(descriptor):
+			checkTags(descriptor, order, displayName)
+			checkDependencies(descriptor, order, displayName)
+	allTags = { t:l for t, l in allTags.items() if len(l) > 1 }
+
 
 
 def run():
@@ -190,26 +287,25 @@ def run():
 	global modList
 	global enabledMods
 	global data
-	# global hashList
-
+	global allTags
+	
 	mods_registry = os.path.join(settingPath, mods_registry)
 	enabledMods, dlc_load = loadJsonOrder('dlc_load.json')
 	displayOrder, game_data = loadJsonOrder('game_data.json')
 
-	# if 'modsOrder' in displayOrder:
-	# 	hashList = displayOrder['modsOrder'] or hashList
-	with open(mods_registry, encoding='UTF-8') as json_file:
-		data = json.load(json_file)
+	with open(mods_registry, encoding='UTF-8') as f:
+		data = json.load(f)
 		modList = getModList(data)
-		# make sure UIOverhual+SpeedDial will load after UIOverhual
-		modList = tweakModOrder(modList)
-	
+	# make sure UIOverhual+SpeedDial will load after UIOverhual
+	modList = tweakModOrder(modList)
 	idList = enabledMods['enabled_mods']
-	# Sort after dependencies
-	for i, mod in enumerate(modList):
-		getModDescription(mod, i)
+	getModDescription()
+	# print(*allTags, sep = "\n")
+	# print(json.dumps({ t:[i.decode() for i in l] for t, l in allTags.items() if len(l) > 1 }, indent = 2))
+	modList = sortAfterTags(allTags, modList)
+	modList = sortDependencies(modList)
 
-	displayOrder['modsOrder'] = [mod.hashKey for mod in modList] # hashList
+	displayOrder['modsOrder'] = [mod.hashKey for mod in modList] # hashList (for PDX launcher)
 	enabledMods['enabled_mods'] = [mod.modId for mod in reversed(modList) if mod.modId in idList]
 	# print(*["%i: %s" % (i, mod.sortedKey.decode('ascii')) for i, mod in enumerate(modList)], sep = "\n")
 	writeJsonOrder(enabledMods, dlc_load)
@@ -240,13 +336,6 @@ def test():
 	tweaked = tweakModOrder(modList)
 	print([x.sortedKey for x in tweaked])
 
-
-# try:
-# 	# sys.setdefaultencoding() should NEVER be used
-# 	reload(sys)  # Reload does the trick!
-# 	sys.setdefaultencoding('UTF8')
-# except:
-# 	print('set encoding failed')
 
 # check Stellaris settings location
 locations = [
