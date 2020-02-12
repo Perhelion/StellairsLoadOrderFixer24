@@ -1,5 +1,6 @@
-# -*- coding: utf-8 -*-
+#-*- coding: utf-8 -*-
 #!python3.6
+#https://github.com/haifengkao/StellairsLoadOrderFixer24
 import json
 import os
 import ctypes  # An included library with Python install.
@@ -9,7 +10,7 @@ import platform
 import zipfile
 
 mods_registry =  'mods_registry.json'
-enabledMods = {}
+idList = []
 data = {}
 allTags = {}
 modList = [] # the modId order (game, which is in reverse to hashList)
@@ -106,9 +107,9 @@ def sortAfterTags(allTags, modList):
 	"Merge allTags with modList"
 	output  = []
 	addAfter = []
-	tagsOrder = ['Utilities', 'Patch', 'Fixes']
 
 	def _rmvDupes(dupes):
+		# list(dict.fromkeys(dupes))
 		finalList = []
 		for i in range(len(dupes)):
 			d = dupes.pop() # prior higher indexes
@@ -117,31 +118,61 @@ def sortAfterTags(allTags, modList):
 		finalList.reverse()
 		return finalList
 
-	def _mergeList(name, modList):
+	def _reorder_modList(name):
+		nonlocal modList
 		# name = name.decode()
 		for mod in modList:
 			if mod.sortedKey == name:
 				modList.remove(mod)
 				modList.append(mod)
 				break
-		return modList
 
-	if 'Music' in allTags:
-		output.extend(allTags.pop('Music'))
-	for o in tagsOrder:
+	def _insertPairTo_modList(name, name2):
+		nonlocal modList
+		# name = name.decode()
+		comp = ''
+		for i, mod in enumerate(modList):
+			if mod.sortedKey == name2:
+				comp = modList.pop(i)
+				break
+		if not comp:
+			return
+		for i, mod in enumerate(modList):
+			if mod.sortedKey == name:
+				modList.insert(i + 1, comp)
+				break
+
+	#prepend list
+	for o in ['OST', 'Music', 'Sound']:
+		if o in allTags:
+			output.extend(allTags.pop(o))
+	#append list
+	for o in ['AI', 'Utilities', 'Fixes']:
 		if o in allTags:
 			addAfter.extend(allTags.pop(o))
+	#merge list
+	for o in ['Patch']:
+		if o in allTags:
+			[x for x in allTags.pop(o) if x not in addAfter and (addAfter.append(x) or True)]
 
+	# allTags = { t:l for t, l in allTags.items() }
 	# print(type(addAfter),len(addAfter),*addAfter, sep="\n")
-		
-	for t, d in allTags.items():
+
+	for d in allTags:
+		if len(d) == 1:
+			# allTags.remove(t)
+			continue
+		if len(d) == 2:
+			# allTags.remove(t)
+			_insertPairTo_modList(d[0], d[1])
+			continue
 		output.extend(d)
 
 	output.extend(addAfter)
 	output = _rmvDupes(output)
 
 	for name in output:
-		modList = _mergeList(name, modList)
+		_reorder_modList(name)
 
 	return modList
 
@@ -150,7 +181,8 @@ def sortAfterDependencies(modList, dependencies, order, name):
 	for n in dependencies:
 		i = getHashFromName(n)
 		if not i:
-			print('Error dependencie: %s not found for %s in mods_registry' % (n.encode(), name))
+			if modList[order].modId in idList:
+				print('Error dependencie: %s not found for %s in mods_registry' % (n.encode(), name))
 			continue
 		i = getIndexFromHash(i, name)
 		if type(i) is int and i > order:
@@ -278,17 +310,16 @@ def getModDescription():
 		if len(descriptor):
 			checkTags(descriptor, order, displayName)
 			checkDependencies(descriptor, order, displayName)
-	allTags = { t:l for t, l in allTags.items() if len(l) > 1 }
-
 
 
 def run():
 	global mods_registry
 	global modList
-	global enabledMods
 	global data
 	global allTags
-	
+	global idList
+
+	enabledMods = {}
 	mods_registry = os.path.join(settingPath, mods_registry)
 	enabledMods, dlc_load = loadJsonOrder('dlc_load.json')
 	displayOrder, game_data = loadJsonOrder('game_data.json')
