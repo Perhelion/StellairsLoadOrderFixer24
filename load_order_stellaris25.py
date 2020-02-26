@@ -11,7 +11,7 @@ import zipfile
 
 mods_registry =  'mods_registry.json'
 idList = []
-data = {}
+data = {}    # mods_registry.json
 allTags = {}
 modList = [] # the modId order (game, which is in reverse to hashList)
 bak_ext = '.bak' # backup file extension
@@ -109,10 +109,11 @@ def sortAfterTags(allTags, modList):
 	addAfter = []
 
 	def _rmvDupes(dupes):
+		"Keep last occurrence (prior higher indexes)"
 		# list(dict.fromkeys(dupes))
 		finalList = []
 		for i in range(len(dupes)):
-			d = dupes.pop() # prior higher indexes
+			d = dupes.pop()
 			if d not in finalList:
 				finalList.append(d)
 		finalList.reverse()
@@ -135,23 +136,22 @@ def sortAfterTags(allTags, modList):
 			if mod.sortedKey == name2:
 				comp = modList.pop(i)
 				break
-		if not comp:
-			return
-		for i, mod in enumerate(modList):
-			if mod.sortedKey == name:
-				modList.insert(i + 1, comp)
-				break
+		if comp:
+			for i, mod in enumerate(modList):
+				if mod.sortedKey == name:
+					modList.insert(i + 1, comp)
+					break
 
 	#prepend list
-	for o in ['OST', 'Music', 'Sound']:
+	for o in ('OST', 'Music', 'Sound', 'Graphics'):
 		if o in allTags:
 			output.extend(allTags.pop(o))
 	#append list
-	for o in ['AI', 'Utilities', 'Fixes']:
+	for o in ('AI', 'Utilities', 'Fixes'):
 		if o in allTags:
 			addAfter.extend(allTags.pop(o))
 	#merge list
-	for o in ['Patch']:
+	for o in ('Patch'):
 		if o in allTags:
 			[x for x in allTags.pop(o) if x not in addAfter and (addAfter.append(x) or True)]
 
@@ -182,7 +182,7 @@ def sortAfterDependencies(modList, dependencies, order, name):
 		i = getHashFromName(n)
 		if not i:
 			if modList[order].modId in idList:
-				print('Error dependencie: %s not found for %s in mods_registry' % (n.encode(), name))
+				print('Fail dependencie: %s not found for %s in mods_registry' % (n.encode(), name))
 			continue
 		i = getIndexFromHash(i, name)
 		if type(i) is int and i > order:
@@ -260,6 +260,33 @@ def checkTags(descContent, order, name):
 						allTags[t] = li
 
 
+def specialOrder(modList):
+	"Individual custom order (if no dependencie present)"
+	specialNames = ("UI Overhaul Dynamic", "Dark UI", "Dark U1")
+	specialList = []
+	for specialName in specialNames:
+		for i, mod in enumerate(modList):
+			if specialName in mod.name:
+				specialList.append((i, mod))
+
+	if len(specialList) > 1:
+		c, _ =  specialList.pop(0)
+		for cmpMod in specialList:
+			ix, cmpMod = cmpMod
+			# print(c, ix, cmpMod.sortedKey)
+			if c > ix:
+				for i, mod in enumerate(modList):
+					if mod.name == cmpMod.name:
+						cmpMod = modList.pop(i)
+						print("Special order", cmpMod.sortedKey, "after", modList[c-1].sortedKey)
+						modList.insert(c, cmpMod)
+						c += 1
+						break
+			else: c = ix
+
+	return modList
+
+
 def getModDescription():
 	global allTags
 	for order, mod in enumerate(modList):
@@ -268,40 +295,40 @@ def getModDescription():
 		dirPath = d.get("dirPath")
 		archivePath = d.get("archivePath")
 		descriptor = []
+		if not dirPath or not os.path.isdir(dirPath):
+			print("Error: no dirPath found for %s in mods_registry" % mod.sortedKey)
+			continue
 		desc_file = os.path.join(dirPath, "descriptor.mod")
 		displayName = mod.sortedKey
 		gId = d.get("gameRegistryId")
 
-		if not dirPath or not os.path.isdir(dirPath):
-			return
-
-		if os.path.isfile(desc_file):
+		if desc_file and os.path.isfile(desc_file):
 			with open(desc_file, encoding='UTF-8') as f:
 				descriptor.append(f.read())
 
-		if archivePath and not len(descriptor):
-			if os.path.isfile(archivePath):
-				try:
-					with zipfile.ZipFile(archivePath, 'r') as zip_ref:
-						zip_ref.extractall(dirPath)
-					# del data_loaded[i]["archivePath"]
-					zip_ref.close()
-					print("Mod archive extraxcted %s" % displayName)
-					# os.remove(archivePath)
-				except Exception as e:
-					print(errorMesssage(e))
-					pass
+		if archivePath and not len(descriptor) and os.path.isfile(archivePath):
+			try:
+				with zipfile.ZipFile(archivePath, 'r') as zip_ref:
+					zip_ref.extractall(dirPath)
+				# del data_loaded[i]["archivePath"]
+				zip_ref.close()
+				print("Mod archive extraxcted for %s" % displayName)
+				# os.remove(archivePath)
+			except Exception as e:
+				print(errorMesssage(e))
+				pass
 			# else:
 			# 	del data_loaded[i]["archivePath"]
-			if os.path.isfile(desc_file):
+			if desc_file and os.path.isfile(desc_file):
 				with open(desc_file, encoding='UTF-8') as f:
 					descriptor.append(f.read())
+
 		if not len(descriptor):
 			print("Error: no descriptor.mod for %s" % displayName)
 
 		# Read mod file
 		desc_file = os.path.join(settingPath, 'mod', mod.modId.replace("mod/",""))
-		if os.path.isfile(desc_file):
+		if desc_file and os.path.isfile(desc_file):
 			with open(desc_file, encoding='UTF-8') as f:
 				descriptor.append(f.read())
 		else:
@@ -334,13 +361,14 @@ def run():
 	# print(*allTags, sep = "\n")
 	# print(json.dumps({ t:[i.decode() for i in l] for t, l in allTags.items() if len(l) > 1 }, indent = 2))
 	modList = sortAfterTags(allTags, modList)
+	modList = specialOrder(modList)
 	modList = sortDependencies(modList)
 
 	displayOrder['modsOrder'] = [mod.hashKey for mod in modList] # hashList (for PDX launcher)
 	enabledMods['enabled_mods'] = [mod.modId for mod in reversed(modList) if mod.modId in idList]
-	# print(*["%i: %s" % (i, mod.sortedKey.decode('ascii')) for i, mod in enumerate(modList)], sep = "\n")
 	writeJsonOrder(enabledMods, dlc_load)
 	writeJsonOrder(displayOrder, game_data)
+	print(*["%i: %s" % (i, mod.sortedKey.decode('ascii')) for i, mod in enumerate(modList)], sep = "\n")
 
 
 def errorMesssage(error):
@@ -368,15 +396,11 @@ def test():
 	print([x.sortedKey for x in tweaked])
 
 
-# check Stellaris settings location
-locations = [
-	".", "..",
-	os.path.join(os.path.expanduser('~'), 'Documents', 'Paradox Interactive',
-				 'Stellaris'),
-	os.path.join(os.path.expanduser('~'), '.local', 'share',
-				 'Paradox Interactive', 'Stellaris')
-]
-settingPath = [s for s in locations if os.path.isfile(os.path.join(s, mods_registry))]
+# Check Stellaris settings location
+settingPath = (".", "..",
+	os.path.join(os.path.expanduser('~'), 'Documents', 'Paradox Interactive', 'Stellaris'),
+	os.path.join(os.path.expanduser('~'), '.local', 'share', 'Paradox Interactive', 'Stellaris'))
+settingPath = [s for s in settingPath if os.path.isfile(os.path.join(s, mods_registry))]
 
 if len(settingPath) > 0:
 	settingPath = settingPath[0] 
